@@ -1,6 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::io::Write;
+use colored::Colorize;
 
 fn create_main_file(path: &str) -> std::io::Result<()> {
     let mut file = File::create(format!("{}main.tf", path))?;
@@ -56,5 +57,5 @@ pub fn module(arg: &clap::ArgMatches) {
     if main_status.is_err() {
         println!("Error creating main file: {}", main_status.err().unwrap());
     }
-    println!("Module {} created successfully", module_name);
+    println!("Module {} created {}", module_name.bold(), "successfully".green().bold());
 }
