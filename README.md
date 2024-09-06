@@ -18,8 +18,9 @@ Here is the list of features already implemented or planned. If you would like t
 
 - [x]  Init a terraform repository
 - [x]  Create a terraform module
+- [x]  Connect to an ecs task through SSM
 - [ ]  Delete an S3 bucket (emptying it before)
-- [ ]  Connect to an ecs task throught SSM
+- [ ]  Create an S3 bucket and a dynamoDB table (to hold terraform state)
 
 
 ## Contributing

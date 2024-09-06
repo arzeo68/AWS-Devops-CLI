@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+aws-config = { version = "1.5.5", features = ["behavior-version-latest"] }
+aws-sdk-ecs = "1.43.0"
 clap = { version = "4.5.16", features = ["derive", "cargo"] }
 colored = "2.1.0"
 comfy-table = "7.1.1"
+ctrlc = "3.4.5"
 promkit = "0.4.5"
 tera = "1.20.0"
+tokio = { version = "1", features = ["full"] }
