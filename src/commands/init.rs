@@ -154,7 +154,12 @@ fn display_prompt() -> InitArgs {
             |text| format!("You should put a name {}", text.len()),
         )
         .prompt().unwrap();
-    let project_string = project.run().unwrap();
+    let project_string = project.run();
+    let project_string=  match project_string {
+        Ok(value) => value,
+        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+    };
+
 
     let mut environments = Readline::default()
         .title("Which environment do you want ? (If you want multiple environments, separate them by a comma)")
@@ -163,7 +168,11 @@ fn display_prompt() -> InitArgs {
             |text| format!("You should at least enter one environment name {}", text.len()),
         )
         .prompt().unwrap();
-    let environments_string = environments.run().unwrap();
+    let environments_string = environments.run();
+    let environments_string = match environments_string {
+        Ok(value) => value,
+        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+    };
 
 
     let mut accounts = Readline::default()
@@ -173,7 +182,11 @@ fn display_prompt() -> InitArgs {
             |text| format!("You should at least enter one account name {}", text.len()),
         )
         .prompt().unwrap();
-    let accounts_string = accounts.run().unwrap();
+    let accounts_string = accounts.run();
+    let accounts_string = match accounts_string {
+        Ok(value) => value,
+        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+    };
 
     let mut region = Readline::default()
         .title("Which region should I use ? (Press tab to see the list of available regions)")
@@ -183,12 +196,20 @@ fn display_prompt() -> InitArgs {
             |text| format!("You should enter a valid region {}", text),
         )
         .prompt().unwrap();
-    let region_string = region.run().unwrap();
+    let region_string = region.run();
+    let region_string = match region_string {
+        Ok(value) => value,
+        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+    };
 
     let mut path = Readline::default()
         .title("Where should I create the repository ? (Default: current directory)")
         .prompt().unwrap();
-    let mut path_string = path.run().unwrap();
+    let path_string = path.run();
+    let mut path_string = match path_string {
+        Ok(value) => value,
+        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+    };
     if path_string.is_empty() {
         path_string = "./".to_string();
     }
@@ -223,7 +244,11 @@ fn display_prompt() -> InitArgs {
     println!("{}", table);
 
     let mut confirm = Confirm::new("Is this correct ?").prompt().unwrap();
-    let confirm_string = confirm.run().unwrap();
+    let confirm_string = confirm.run();
+    let confirm_string = match confirm_string {
+        Ok(value) => value,
+        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+    };
     let status = confirm_string == "yes" || confirm_string == "y";
     drop(confirm);
 

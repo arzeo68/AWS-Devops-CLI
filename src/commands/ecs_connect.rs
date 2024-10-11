@@ -2,16 +2,22 @@ use aws_sdk_ecs as ecs;
 use promkit::preset::listbox::Listbox;
 use promkit::preset::readline::Readline;
 
-struct AwsResource {
-    arn: String,
-    name: String,
+pub struct AwsResource {
+    pub(crate) arn: String,
+    pub(crate) name: String,
 }
 
-fn get_index_of<T: PartialEq>(vec: &Vec<T>, value: T) -> usize {
+pub struct ECSContainer {
+    pub(crate) name: String,
+    pub(crate) runtime_id: String,
+}
+
+pub(crate) fn get_index_of<T: PartialEq>(vec: &Vec<T>, value: T) -> usize {
     vec.iter().position(|x| *x == value).unwrap()
 }
 
-async fn execute_command(cluster: &str, task: &str, container: &str, command: &str) {
+pub(crate) async fn execute_command(cluster: &str, task: &str, container: &str, command: &str) {
+    ctrlc::set_handler(move || {}).expect("Error setting Ctrl-C handler");
     let output = std::process::Command::new("/bin/sh")
         .arg("-c")
         .arg(format!("aws ecs execute-command --cluster {} --task {} --container {} --command '{}' --interactive", cluster, task, container, command))
@@ -20,29 +26,31 @@ async fn execute_command(cluster: &str, task: &str, container: &str, command: &s
     let _ = output.wait_with_output();
 }
 
-async fn list_task_container(client: &ecs::Client, cluster: &str, task: &str) -> Vec<AwsResource> {
-    let mut res: Vec<AwsResource> = Vec::new();
+pub(crate) async fn list_task_container(client: &ecs::Client, cluster: &str, task: &str) -> Vec<ECSContainer> {
+    let mut res: Vec<ECSContainer> = Vec::new();
     let containers = client.describe_tasks().cluster(cluster).tasks(task.to_string()).send().await;
     if containers.is_err() {
         println!("Error listing containers: {:?}", containers.err());
         return vec![];
     }
+
     for container in containers.unwrap().tasks.unwrap().clone() {
         for container in container.containers.unwrap().clone() {
             let container_name = container.name.clone().unwrap();
-            res.push(AwsResource { arn: container.container_arn.unwrap(), name: container_name });
+            res.push(ECSContainer { name: container_name, runtime_id: container.runtime_id.unwrap() });
         }
     }
     res
 }
 
-async fn list_service_tasks(client: &ecs::Client, cluster: &str, service: &str) -> Vec<AwsResource> {
+pub(crate) async fn list_service_tasks(client: &ecs::Client, cluster: &str, service: &str) -> Vec<AwsResource> {
     let mut res: Vec<AwsResource> = Vec::new();
     let tasks = client.list_tasks().cluster(cluster).service_name(service).send().await;
     if tasks.is_err() {
         println!("Error listing tasks: {:?}", tasks.err());
         return vec![];
     }
+
     for task in tasks.unwrap().task_arns.unwrap().clone() {
         let task_name = task.split("/").last().unwrap().to_string();
         res.push(AwsResource { arn: task, name: task_name });
@@ -51,7 +59,7 @@ async fn list_service_tasks(client: &ecs::Client, cluster: &str, service: &str) 
     res
 }
 
-async fn list_cluster_services(client: &ecs::Client, cluster: &str) -> Vec<AwsResource> {
+pub(crate) async fn list_cluster_services(client: &ecs::Client, cluster: &str) -> Vec<AwsResource> {
     let mut res: Vec<AwsResource> = Vec::new();
     let services = client.list_services().cluster(cluster).send().await;
     if services.is_err() {
@@ -66,7 +74,7 @@ async fn list_cluster_services(client: &ecs::Client, cluster: &str) -> Vec<AwsRe
     res
 }
 
-async fn get_clusters(client: &ecs::Client) -> Vec<AwsResource> { //TODO: handle pagination
+pub(crate) async fn get_clusters(client: &ecs::Client) -> Vec<AwsResource> {
     let mut res: Vec<AwsResource> = Vec::new();
     let clusters = client.list_clusters().send().await;
     if clusters.is_err() {
