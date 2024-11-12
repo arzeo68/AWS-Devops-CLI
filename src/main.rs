@@ -1,14 +1,19 @@
 use clap::{command, Arg, Command};
 mod commands;
 
+fn delete_bucket_command() -> Command {
+    Command::new("delete-bucket")
+        .about("Delete a bucket")
+}
+
 fn init_aws_state() -> Command {
     Command::new("init-aws-state")
         .about("Init a dynamoDB and an S3 bucket")
 }
 
 fn ecs_connect_command() -> Command {
-    Command::new("ecs-connect")
-        .about("Connect to an ECS container")
+    Command::new("connect")
+        .about("Connect to an instance (EC2 / ECS)")
 }
 
 fn port_forward() -> Command {
@@ -45,14 +50,16 @@ async fn main() {
         .subcommand(ecs_connect_command())
         .subcommand(init_aws_state())
         .subcommand(port_forward())
+        .subcommand(delete_bucket_command())
         .get_matches();
 
     match matches.subcommand() {
         Some(("init", _sub_matches)) => commands::init::init(),
         Some(("module", sub_matches)) => commands::module::module(sub_matches),
-        Some(("ecs-connect", _sub_matches)) => commands::ecs_connect::ecs_connect().await,
+        Some(("connect", _sub_matches)) => commands::ecs_connect::instance_connect().await,
         Some(("init-aws-state", _sub_matches)) => commands::inti_aws_state::init_aws_state().await,
         Some(("port-forward", _sub_matches)) => commands::port_forward::port_forward().await,
+        Some(("delete-bucket", _sub_matches)) => commands::delete_bucket::delete_bucket().await,
         _ => println!("No subcommand was used, please use the --help flag for more information"),
     }
 }

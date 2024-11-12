@@ -212,6 +212,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-ec2"
+version = "1.78.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85202834a2ab5de58fd02e4d1322484549615beb2125acb8031cea244d482ac3"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-query",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-smithy-xml",
+ "aws-types",
+ "fastrand",
+ "http 0.2.12",
+ "once_cell",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-ecs"
 version = "1.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -956,9 +980,11 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
+ "aws-sdk-ec2",
  "aws-sdk-ecs",
  "aws-sdk-s3",
  "aws-sdk-ssm",
+ "aws-smithy-runtime-api",
  "clap",
  "colored",
  "comfy-table",

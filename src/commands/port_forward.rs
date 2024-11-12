@@ -1,10 +1,16 @@
 use promkit::preset::listbox::Listbox;
 use promkit::preset::readline::Readline;
+use aws_sdk_ec2 as ec2;
 
-async fn connect_to_ecs_command(cluster: &str, task_id: &str, runtime_id: &str, host: &str, local_port: &str, remote_port: &str) {
+#[derive(Debug)]
+pub struct EC2Instance {
+    pub(crate) instance_id: String,
+    pub(crate) name: String
+}
+
+async fn connect_to_ecs_command(target: &str, host: &str, local_port: &str, remote_port: &str) {
     ctrlc::set_handler(move || {}).expect("Error setting Ctrl-C handler");
 
-    let target = format!("ecs:{}_{}_{}", cluster, task_id, runtime_id);
     let document = "AWS-StartPortForwardingSessionToRemoteHost";
     let params = format!("\'{{\"portNumber\":[\"{}\"],\"localPortNumber\":[\"{}\"], \"host\":[\"{}\"]}}\'", remote_port, local_port, host);
     let command = format!("aws ssm start-session --target {} --document-name {} --parameters {}", target, document, params);
@@ -23,8 +29,8 @@ fn select_port(question: &String) -> String {
     let mut port = Readline::default()
         .title(question)
         .validator(
-            |text| text.len() > 0,
-            |text| format!("Your port can't be empty {}", text.len()),
+            |text| text.parse::<f64>().is_ok() ,
+            |text| format!("Your port should be a number {}", text),
         )
         .prompt().unwrap();
     let port_string = port.run();
@@ -32,6 +38,7 @@ fn select_port(question: &String) -> String {
         Ok(value) => value,
         Err(_) => { print!("Aborted by user");std::process::exit(1); }
     };
+    drop(port);
     port_string
 }
 
@@ -49,6 +56,48 @@ fn select_host(question: &String) -> String {
         Err(_) => { print!("Aborted by user");std::process::exit(1); }
     };
     host_string
+}
+
+pub(crate) async fn list_ec2_instances(client: &ec2::Client) -> Vec<EC2Instance> {
+    let mut res: Vec<EC2Instance> = Vec::new();
+    let instances = client.describe_instances().send().await;
+    if instances.is_err() {
+        println!("Error listing instances: {:?}", instances.err());
+        return vec![];
+    }
+
+    for reservation in instances.unwrap().reservations.unwrap().clone() {
+        for instance in reservation.instances.unwrap().clone() {
+            let instance_id = instance.instance_id.clone().unwrap();
+            let name = instance.tags.unwrap().iter().find(|tag| tag.key.as_deref() == Some("Name")).unwrap().value.clone().unwrap();
+            let display_name = format!("{} ({})", name, instance_id);
+            res.push(EC2Instance { instance_id, name: display_name });
+        }
+    }
+    res
+}
+
+async fn connect_to_ec2_instance() {
+
+    let config = aws_config::load_from_env().await;
+    let client = ec2::Client::new(&config);
+
+    let instances = list_ec2_instances(&client).await;
+    if instances.is_empty() { println!("No instances found"); return; }
+    let instances_id: Vec<String> = instances.iter().map(|i| i.instance_id.clone()).collect();
+    let instances_name: Vec<String> = instances.iter().map(|i| i.name.clone()).collect();
+    let instance = Listbox::new(&instances_name)
+        .title("Which instance do you want?")
+        .listbox_lines(5)
+        .prompt().unwrap().run().unwrap();
+    let target = &instances_id[crate::commands::ecs_connect::get_index_of(&instances_name, instance)];
+
+
+    let host = select_host(&"What host do you want to use?".to_string());
+    let remote_port = select_port(&"What remote port do you want to use?".to_string());
+    let local_port = select_port(&"What local port do you want to use?".to_string());
+
+    connect_to_ecs_command(&target, &host, &local_port, &remote_port).await;
 }
 
 async fn connect_to_ecs_container() {
@@ -99,7 +148,9 @@ async fn connect_to_ecs_container() {
     let remote_port = select_port(&"What remote port do you want to use?".to_string());
     let local_port = select_port(&"What local port do you want to use?".to_string());
 
-    connect_to_ecs_command(&cluster, &task_id, &runtime_id, &host, &local_port, &remote_port).await;
+    let target = format!("ecs:{}_{}_{}", cluster, task_id, runtime_id);
+
+    connect_to_ecs_command(&target, &host, &local_port, &remote_port).await;
 }
 
 
@@ -115,7 +166,7 @@ pub async fn port_forward() {
     let selected_type = select_type();
     match selected_type.as_str() {
         "EC2" => {
-            println!("EC2 selected");
+            connect_to_ec2_instance().await;
         }
         "ECS container" => {
             connect_to_ecs_container().await;
