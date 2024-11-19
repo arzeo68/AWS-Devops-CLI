@@ -1,8 +1,7 @@
-use aws_sdk_ecs as ecs;
 use promkit::preset::listbox::Listbox;
 use promkit::preset::readline::Readline;
 use aws_sdk_ec2 as ec2;
-
+use crate::commands::aws_utils::{get_clusters, list_cluster_services, list_service_tasks, list_task_container};
 
 pub struct AwsResource {
     pub(crate) arn: String,
@@ -12,10 +11,6 @@ pub struct AwsResource {
 pub struct ECSContainer {
     pub(crate) name: String,
     pub(crate) runtime_id: String,
-}
-
-pub(crate) fn get_index_of<T: PartialEq>(vec: &Vec<T>, value: T) -> usize {
-    vec.iter().position(|x| *x == value).unwrap()
 }
 
 async fn connect_to_ec2_command(target: &str) {
@@ -45,68 +40,6 @@ pub(crate) async fn execute_command(cluster: &str, task: &str, container: &str, 
     let _ = output.wait_with_output();
 }
 
-pub(crate) async fn list_task_container(client: &ecs::Client, cluster: &str, task: &str) -> Vec<ECSContainer> {
-    let mut res: Vec<ECSContainer> = Vec::new();
-    let containers = client.describe_tasks().cluster(cluster).tasks(task.to_string()).send().await;
-    if containers.is_err() {
-        println!("Error listing containers: {:?}", containers.err());
-        return vec![];
-    }
-
-    for container in containers.unwrap().tasks.unwrap().clone() {
-        for container in container.containers.unwrap().clone() {
-            let container_name = container.name.clone().unwrap();
-            res.push(ECSContainer { name: container_name, runtime_id: container.runtime_id.unwrap() });
-        }
-    }
-    res
-}
-
-pub(crate) async fn list_service_tasks(client: &ecs::Client, cluster: &str, service: &str) -> Vec<AwsResource> {
-    let mut res: Vec<AwsResource> = Vec::new();
-    let tasks = client.list_tasks().cluster(cluster).service_name(service).send().await;
-    if tasks.is_err() {
-        println!("Error listing tasks: {:?}", tasks.err());
-        return vec![];
-    }
-
-    for task in tasks.unwrap().task_arns.unwrap().clone() {
-        let task_name = task.split("/").last().unwrap().to_string();
-        res.push(AwsResource { arn: task, name: task_name });
-    }
-
-    res
-}
-
-pub(crate) async fn list_cluster_services(client: &ecs::Client, cluster: &str) -> Vec<AwsResource> {
-    let mut res: Vec<AwsResource> = Vec::new();
-    let services = client.list_services().cluster(cluster).send().await;
-    if services.is_err() {
-        println!("Error listing services: {:?}", services.err());
-        return vec![];
-    }
-    for service in services.unwrap().service_arns.unwrap().clone() {
-        let service_name = service.split("/").last().unwrap().to_string();
-        res.push(AwsResource { arn: service, name: service_name });
-    }
-
-    res
-}
-
-pub(crate) async fn get_clusters(client: &ecs::Client) -> Vec<AwsResource> {
-    let mut res: Vec<AwsResource> = Vec::new();
-    let clusters = client.list_clusters().send().await;
-    if clusters.is_err() {
-        println!("Error listing clusters: {:?}", clusters.err());
-        return vec![];
-    }
-    for cluster in clusters.unwrap().cluster_arns.unwrap().clone() {
-        let cluster_name = cluster.split("/").last().unwrap().to_string();
-        res.push(AwsResource { arn: cluster, name: cluster_name });
-    }
-    res
-}
-
 pub async fn ecs_connect() {
     let config = aws_config::load_from_env().await;
     let client = aws_sdk_ecs::Client::new(&config);
@@ -119,7 +52,7 @@ pub async fn ecs_connect() {
         .title("What cluster do you want?")
         .listbox_lines(5)
         .prompt().unwrap().run().unwrap();
-    let cluster = &clusters_arn[get_index_of(&clusters_name, cluster)];
+    let cluster = &clusters_arn[crate::commands::cli_utils::get_index_of(&clusters_name, cluster)];
 
 
     let services = list_cluster_services(&client, &cluster).await;
@@ -130,7 +63,7 @@ pub async fn ecs_connect() {
         .title("What service do you want?")
         .listbox_lines(5)
         .prompt().unwrap().run().unwrap();
-    let service = &services_arn[get_index_of(&services_name, service)];
+    let service = &services_arn[crate::commands::cli_utils::get_index_of(&services_name, service)];
 
     let tasks = list_service_tasks(&client, &cluster, &service).await;
     if tasks.is_empty() { println!("No tasks found"); return; }
@@ -140,7 +73,7 @@ pub async fn ecs_connect() {
         .title("What task do you want?")
         .listbox_lines(5)
         .prompt().unwrap().run().unwrap();
-    let task = &tasks_arn[get_index_of(&tasks_name, task)];
+    let task = &tasks_arn[crate::commands::cli_utils::get_index_of(&tasks_name, task)];
 
 
     let containers = list_task_container(&client, &cluster, &task).await;
@@ -167,7 +100,7 @@ async fn connect_to_ec2_instance() {
     let config = aws_config::load_from_env().await;
     let client = ec2::Client::new(&config);
 
-    let instances = crate::commands::port_forward::list_ec2_instances(&client).await;
+    let instances = crate::commands::aws_utils::list_ec2_instances(&client).await;
     if instances.is_empty() { println!("No instances found"); return; }
     let instances_id: Vec<String> = instances.iter().map(|i| i.instance_id.clone()).collect();
     let instances_name: Vec<String> = instances.iter().map(|i| i.name.clone()).collect();
@@ -175,20 +108,14 @@ async fn connect_to_ec2_instance() {
         .title("Which instance do you want?")
         .listbox_lines(5)
         .prompt().unwrap().run().unwrap();
-    let target = &instances_id[crate::commands::ecs_connect::get_index_of(&instances_name, instance)];
+    let target = &instances_id[crate::commands::cli_utils::get_index_of(&instances_name, instance)];
 
     connect_to_ec2_command(&target).await;
 }
 
-fn select_type() -> String {
-    let types = vec!["EC2", "ECS container"];
-    Listbox::new(&types)
-        .title("Select the type of resource you want to port forward")
-        .listbox_lines(5)
-        .prompt().unwrap().run().unwrap()
-}
+
 pub async fn instance_connect() {
-    let selected_type = select_type();
+    let selected_type = crate::commands::cli_utils::select_type();
     match selected_type.as_str() {
         "EC2" => {
             connect_to_ec2_instance().await;
