@@ -68,6 +68,8 @@ pub(crate) async fn list_ec2_instances(client: &ec2::Client) -> Vec<EC2Instance>
 
     for reservation in instances.unwrap().reservations.unwrap().clone() {
         for instance in reservation.instances.unwrap().clone() {
+            if instance.state.unwrap().name.unwrap().as_str() != "running" { continue; }
+
             let instance_id = instance.instance_id.clone().unwrap();
             let name = instance.tags.unwrap().iter().find(|tag| tag.key.as_deref() == Some("Name")).unwrap().value.clone().unwrap();
             let display_name = format!("{} ({})", name, instance_id);
