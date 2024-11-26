@@ -3,35 +3,32 @@ name: Build Rust Binaries for Multiple Platforms
 on:
   push:
     branches:
-      - master  # Trigger on push to the main branch
+      - master
   pull_request:
     branches:
-      - master  # Trigger on PRs to the main branch
+      - master
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # The job will run on Ubuntu, but will cross-compile for multiple platforms
+    runs-on: ubuntu-latest
     
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        architecture: [x86_64, aarch64]  # x86_64 and ARM64 (aarch64) architectures
+        architecture: [x86_64, aarch64]
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2  # Check out the repository code
+        uses: actions/checkout@v2
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1  # Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable  # Use the stable Rust version
-          override: true  # Ensure Rust is overridden for the current job
-
-      - name: Install dependencies
-        run: cargo install --locked  # Install dependencies listed in Cargo.toml
+          toolchain: stable
+          override: true
 
       - name: Install cross
-        run: cargo install cross  # Install cross tool to help with cross-compilation
+        run: cargo install cross
 
       - name: Build the project for ${{ matrix.os }} and ${{ matrix.architecture }}
         run: |
@@ -44,7 +41,7 @@ jobs:
           fi
 
       - name: Create artifacts
-        uses: actions/upload-artifact@v3  # Upload the compiled binaries as artifacts
+        uses: actions/upload-artifact@v3
         with:
           name: rust-binary-${{ matrix.os }}-${{ matrix.architecture }}
           path: target/${{ matrix.os }}-${{ matrix.architecture }}/release/devops-cli
