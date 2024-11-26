@@ -1,47 +1,26 @@
-name: Build Rust Binaries for Multiple Platforms
+name: Cargo Build & Test
 
 on:
   push:
-    branches:
-      - master
   pull_request:
-    branches:
-      - master
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build_binary:
+    name: Rust project - latest
     runs-on: ubuntu-latest
-    
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        architecture: [x86_64, aarch64]
-
+        toolchain:
+          - stable
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-
-      - name: Install cross
-        run: cargo install cross
-
-      - name: Build the project for ${{ matrix.os }} and ${{ matrix.architecture }}
-        run: |
-          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            cross build --target ${ARCH} --release  # Build for Linux (x86_64 or ARM)
-          elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cross build --target ${ARCH}-pc-windows-msvc --release  # Build for Windows (x86_64 or ARM)
-          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            cross build --target ${ARCH}-apple-darwin --release  # Build for macOS (x86_64 or ARM)
-          fi
-
-      - name: Create artifacts
+      - uses: actions/checkout@v4
+      - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - run: cargo build --release
+      - name: Create artifact
         uses: actions/upload-artifact@v3
         with:
-          name: rust-binary-${{ matrix.os }}-${{ matrix.architecture }}
-          path: target/${{ matrix.os }}-${{ matrix.architecture }}/release/devops-cli
+          name: devops-cli
+          path: target/release/devops-cli
