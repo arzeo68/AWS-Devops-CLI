@@ -2,41 +2,30 @@ use clap::{command, Arg, Command};
 mod commands;
 
 fn delete_bucket_command() -> Command {
-    Command::new("delete-bucket")
-        .about("Delete a bucket")
+    Command::new("delete-bucket").about("Delete a bucket")
 }
 
 fn init_aws_state() -> Command {
-    Command::new("init-aws-state")
-        .about("Init a dynamoDB and an S3 bucket")
+    Command::new("init-aws-state").about("Init a dynamoDB and an S3 bucket")
 }
 
 fn ecs_connect_command() -> Command {
-    Command::new("connect")
-        .about("Connect to an instance (EC2 / ECS)")
+    Command::new("connect").about("Connect to an instance (EC2 / ECS)")
 }
 
 fn port_forward() -> Command {
-    Command::new("port-forward")
-        .about("Forward a port from a container/EC2 to your local machine")
+    Command::new("port-forward").about("Forward a port from a container/EC2 to your local machine")
 }
 
 fn module_command() -> Command {
     Command::new("module")
         .about("Create a new terraform module")
-        .arg(
-            Arg::new("name")
-                .required(true),
-        )
-        .arg(
-            Arg::new("path")
-                .required(true),
-        )
+        .arg(Arg::new("name").required(true))
+        .arg(Arg::new("path").required(true))
 }
 
 fn init_command() -> Command {
-    Command::new("init")
-        .about("Init a terraform repository")
+    Command::new("init").about("Init a terraform repository")
 }
 
 #[::tokio::main]

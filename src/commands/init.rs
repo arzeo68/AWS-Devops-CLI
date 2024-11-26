@@ -1,14 +1,14 @@
-use std::fs;
-use std::fs::File;
-use std::io::Write;
 use colored::Colorize;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
-use tera::{Context, Tera};
 use comfy_table::{ContentArrangement, Table};
 use promkit::preset::confirm::Confirm;
 use promkit::preset::readline::Readline;
 use promkit::suggest::Suggest;
+use std::fs;
+use std::fs::File;
+use std::io::Write;
+use tera::{Context, Tera};
 
 struct InitArgs {
     project: String,
@@ -18,7 +18,6 @@ struct InitArgs {
     path: String,
     status: bool,
 }
-
 
 const AWS_REGION: [&str; 20] = [
     "us-east-1",
@@ -67,9 +66,16 @@ locals {
     Ok(())
 }
 
-fn create_tfvars_file(path: &str, project_name: &str, environment_name: &str, region: &str) -> std::io::Result<()> {
-
-    let tfvars_content: String = format!("project = \"{}\"\nenvironment = \"{}\"\nregion = {:?}", project_name, environment_name, region);
+fn create_tfvars_file(
+    path: &str,
+    project_name: &str,
+    environment_name: &str,
+    region: &str,
+) -> std::io::Result<()> {
+    let tfvars_content: String = format!(
+        "project = \"{}\"\nenvironment = \"{}\"\nregion = {:?}",
+        project_name, environment_name, region
+    );
 
     let mut file = File::create(format!("{}terraform.tfvars", path))?;
     file.write_all(tfvars_content.as_bytes())?;
@@ -83,7 +89,6 @@ fn create_outputs_file(path: &str) -> std::io::Result<()> {
 }
 
 fn create_inputs_file(path: &str) -> std::io::Result<()> {
-
     let inputs_content: &str = "\
 variable \"project\" {
     description = \"Project name\"
@@ -99,17 +104,18 @@ variable \"region\" {
 }\
 ";
 
-        let mut file = File::create(format!("{}inputs.tf", path))?;
-        file.write_all(inputs_content.as_bytes())?;
-        Ok(())
+    let mut file = File::create(format!("{}inputs.tf", path))?;
+    file.write_all(inputs_content.as_bytes())?;
+    Ok(())
 }
 
 fn create_backend_file(path: &str, region: &str) -> std::io::Result<()> {
-
     let mut tera = Tera::default();
     let mut context = Context::new();
     context.insert("region", region);
-    let backend_content = tera.render_str("\
+    let backend_content = tera
+        .render_str(
+            "\
 terraform {
     backend \"s3\" {
         bucket = \"mybucket\"
@@ -118,8 +124,10 @@ terraform {
         dynamodb_table = \"tfstate-lock\"
         encrypt        = true
     }
-}", &context).unwrap();
-
+}",
+            &context,
+        )
+        .unwrap();
 
     let mut file = File::create(format!("{}backend.tf", path))?;
     file.write_all(backend_content.as_bytes())?;
@@ -137,7 +145,6 @@ fn init_accounts(root: &str, account: &str) -> std::io::Result<()> {
     Ok(())
 }
 fn init_folders(root: &str) -> std::io::Result<()> {
-
     fs::create_dir_all(root)?;
     fs::create_dir_all(format!("{}environments", root))?;
     fs::create_dir_all(format!("{}accounts", root))?;
@@ -153,13 +160,16 @@ fn display_prompt() -> InitArgs {
             |text| text.len() > 0,
             |text| format!("You should put a name {}", text.len()),
         )
-        .prompt().unwrap();
+        .prompt()
+        .unwrap();
     let project_string = project.run();
-    let project_string=  match project_string {
+    let project_string = match project_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
-
 
     let mut environments = Readline::default()
         .title("Which environment do you want ? (If you want multiple environments, separate them by a comma)")
@@ -171,21 +181,29 @@ fn display_prompt() -> InitArgs {
     let environments_string = environments.run();
     let environments_string = match environments_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
 
-
     let mut accounts = Readline::default()
-        .title("Which account do you want ? (If you want multiple accounts, separate them by a comma)")
+        .title(
+            "Which account do you want ? (If you want multiple accounts, separate them by a comma)",
+        )
         .validator(
             |text| text.len() > 0,
             |text| format!("You should at least enter one account name {}", text.len()),
         )
-        .prompt().unwrap();
+        .prompt()
+        .unwrap();
     let accounts_string = accounts.run();
     let accounts_string = match accounts_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
 
     let mut region = Readline::default()
@@ -195,20 +213,28 @@ fn display_prompt() -> InitArgs {
             |text| AWS_REGION.contains(&text),
             |text| format!("You should enter a valid region {}", text),
         )
-        .prompt().unwrap();
+        .prompt()
+        .unwrap();
     let region_string = region.run();
     let region_string = match region_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
 
     let mut path = Readline::default()
         .title("Where should I create the repository ? (Default: current directory)")
-        .prompt().unwrap();
+        .prompt()
+        .unwrap();
     let path_string = path.run();
     let mut path_string = match path_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
     if path_string.is_empty() {
         path_string = "./".to_string();
@@ -220,26 +246,11 @@ fn display_prompt() -> InitArgs {
         .load_preset(UTF8_FULL)
         .apply_modifier(UTF8_ROUND_CORNERS)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .add_row(vec![
-            "Region",
-            region_string.as_str()
-        ])
-        .add_row(vec![
-            "Project",
-            project_string.as_str()
-        ])
-        .add_row(vec![
-            "Path",
-            path_string.as_str()
-        ])
-        .add_row(vec![
-            "Environments",
-            environments_string.as_str()
-        ])
-        .add_row(vec![
-            "Accounts",
-            accounts_string.as_str()
-        ]);
+        .add_row(vec!["Region", region_string.as_str()])
+        .add_row(vec!["Project", project_string.as_str()])
+        .add_row(vec!["Path", path_string.as_str()])
+        .add_row(vec!["Environments", environments_string.as_str()])
+        .add_row(vec!["Accounts", accounts_string.as_str()]);
 
     println!("{}", table);
 
@@ -247,15 +258,24 @@ fn display_prompt() -> InitArgs {
     let confirm_string = confirm.run();
     let confirm_string = match confirm_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
     let status = confirm_string == "yes" || confirm_string == "y";
     drop(confirm);
 
     InitArgs {
         project: project_string,
-        environments: environments_string.split(",").map(|v| v.trim().to_string()).collect(),
-        accounts: accounts_string.split(",").map(|v| v.trim().to_string()).collect(),
+        environments: environments_string
+            .split(",")
+            .map(|v| v.trim().to_string())
+            .collect(),
+        accounts: accounts_string
+            .split(",")
+            .map(|v| v.trim().to_string())
+            .collect(),
         region: region_string,
         path: path_string,
         status,
@@ -263,7 +283,6 @@ fn display_prompt() -> InitArgs {
 }
 
 pub fn init() {
-
     let args = display_prompt();
     if !args.status {
         println!("Aborted by user");
@@ -274,65 +293,137 @@ pub fn init() {
     let accounts = args.accounts;
     let region = args.region;
     let mut path = args.path;
-    if !path.ends_with("/") { path = format!("{}/", path); }
+    if !path.ends_with("/") {
+        path = format!("{}/", path);
+    }
 
     let folders_status = init_folders(path.as_str());
     if folders_status.is_err() {
-        println!("Error creating folders: {}", folders_status.err().unwrap());return;
+        println!("Error creating folders: {}", folders_status.err().unwrap());
+        return;
     }
-
 
     for environment in &environments {
         let environments_status = init_environments(path.as_str(), environment);
         if environments_status.is_err() {
-            println!("Error creating environments: {}", environments_status.err().unwrap());return;
+            println!(
+                "Error creating environments: {}",
+                environments_status.err().unwrap()
+            );
+            return;
         }
-        let backend_status = create_backend_file(format!("{}environments/{}/", path.as_str(), environment).as_str(), region.as_str());
+        let backend_status = create_backend_file(
+            format!("{}environments/{}/", path.as_str(), environment).as_str(),
+            region.as_str(),
+        );
         if backend_status.is_err() {
-            println!("Error creating backend file for environment: {}", backend_status.err().unwrap());return;
+            println!(
+                "Error creating backend file for environment: {}",
+                backend_status.err().unwrap()
+            );
+            return;
         }
-        let inputs_status = create_inputs_file(format!("{}environments/{}/", path.as_str(), environment).as_str());
+        let inputs_status =
+            create_inputs_file(format!("{}environments/{}/", path.as_str(), environment).as_str());
         if inputs_status.is_err() {
-            println!("Error creating inputs file for environment: {}", inputs_status.err().unwrap());return;
+            println!(
+                "Error creating inputs file for environment: {}",
+                inputs_status.err().unwrap()
+            );
+            return;
         }
-        let outputs_status = create_outputs_file(format!("{}environments/{}/", path.as_str(), environment).as_str());
+        let outputs_status =
+            create_outputs_file(format!("{}environments/{}/", path.as_str(), environment).as_str());
         if outputs_status.is_err() {
-            println!("Error creating outputs file for environment: {}", outputs_status.err().unwrap());return;
+            println!(
+                "Error creating outputs file for environment: {}",
+                outputs_status.err().unwrap()
+            );
+            return;
         }
-        let tfvars_status = create_tfvars_file(format!("{}environments/{}/", path.as_str(), environment).as_str(), project.as_str(), environment, region.as_str());
+        let tfvars_status = create_tfvars_file(
+            format!("{}environments/{}/", path.as_str(), environment).as_str(),
+            project.as_str(),
+            environment,
+            region.as_str(),
+        );
         if tfvars_status.is_err() {
-            println!("Error creating tfvars file for environment: {}", tfvars_status.err().unwrap());return;
+            println!(
+                "Error creating tfvars file for environment: {}",
+                tfvars_status.err().unwrap()
+            );
+            return;
         }
-        let main_status = create_main_file(format!("{}environments/{}/", path.as_str(), environment).as_str());
+        let main_status =
+            create_main_file(format!("{}environments/{}/", path.as_str(), environment).as_str());
         if main_status.is_err() {
-            println!("Error creating main file for environment: {}", main_status.err().unwrap());return;
+            println!(
+                "Error creating main file for environment: {}",
+                main_status.err().unwrap()
+            );
+            return;
         }
     }
 
     for account in &accounts {
         let accounts_status = init_accounts(path.as_str(), account);
         if accounts_status.is_err() {
-            println!("Error creating accounts: {}", accounts_status.err().unwrap());return;
+            println!(
+                "Error creating accounts: {}",
+                accounts_status.err().unwrap()
+            );
+            return;
         }
-        let backend_status = create_backend_file(format!("{}accounts/{}/", path.as_str(), account).as_str(), region.as_str());
+        let backend_status = create_backend_file(
+            format!("{}accounts/{}/", path.as_str(), account).as_str(),
+            region.as_str(),
+        );
         if backend_status.is_err() {
-            println!("Error creating backend file for environment: {}", backend_status.err().unwrap());return;
+            println!(
+                "Error creating backend file for environment: {}",
+                backend_status.err().unwrap()
+            );
+            return;
         }
-        let inputs_status = create_inputs_file(format!("{}accounts/{}/", path.as_str(), account).as_str());
+        let inputs_status =
+            create_inputs_file(format!("{}accounts/{}/", path.as_str(), account).as_str());
         if inputs_status.is_err() {
-            println!("Error creating inputs file for environment: {}", inputs_status.err().unwrap());return;
+            println!(
+                "Error creating inputs file for environment: {}",
+                inputs_status.err().unwrap()
+            );
+            return;
         }
-        let outputs_status = create_outputs_file(format!("{}accounts/{}/", path.as_str(), account).as_str());
+        let outputs_status =
+            create_outputs_file(format!("{}accounts/{}/", path.as_str(), account).as_str());
         if outputs_status.is_err() {
-            println!("Error creating outputs file for environment: {}", outputs_status.err().unwrap());return;
+            println!(
+                "Error creating outputs file for environment: {}",
+                outputs_status.err().unwrap()
+            );
+            return;
         }
-        let tfvars_status = create_tfvars_file(format!("{}accounts/{}/", path.as_str(), account).as_str(), project.as_str(), account, region.as_str());
+        let tfvars_status = create_tfvars_file(
+            format!("{}accounts/{}/", path.as_str(), account).as_str(),
+            project.as_str(),
+            account,
+            region.as_str(),
+        );
         if tfvars_status.is_err() {
-            println!("Error creating tfvars file for environment: {}", tfvars_status.err().unwrap());return;
+            println!(
+                "Error creating tfvars file for environment: {}",
+                tfvars_status.err().unwrap()
+            );
+            return;
         }
-        let main_status = create_main_file(format!("{}accounts/{}/", path.as_str(), account).as_str());
+        let main_status =
+            create_main_file(format!("{}accounts/{}/", path.as_str(), account).as_str());
         if main_status.is_err() {
-            println!("Error creating main file for environment: {}", main_status.err().unwrap());return;
+            println!(
+                "Error creating main file for environment: {}",
+                main_status.err().unwrap()
+            );
+            return;
         }
     }
     println!("Init command executed {}!", "successfully".green().bold());

@@ -1,10 +1,9 @@
 use aws_sdk_s3::error::SdkError;
+use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use promkit::preset::confirm::Confirm;
 use promkit::preset::listbox::Listbox;
-use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 
 use aws_sdk_s3::operation::list_objects_v2::{ListObjectsV2Error, ListObjectsV2Output};
-
 
 async fn empty_bucket(client: &aws_sdk_s3::Client, bucket_name: &str) {
     let objects = list_objects(client, bucket_name).await.unwrap();
@@ -15,7 +14,6 @@ async fn empty_bucket(client: &aws_sdk_s3::Client, bucket_name: &str) {
         }
     }
 }
-
 
 async fn list_objects(
     client: &aws_sdk_s3::Client,
@@ -41,9 +39,7 @@ async fn list_buckets(client: &aws_sdk_s3::Client) -> Vec<String> {
     res
 }
 
-
 pub async fn delete_bucket() {
-
     let config = aws_config::load_from_env().await;
     let client = aws_sdk_s3::Client::new(&config);
 
@@ -51,15 +47,20 @@ pub async fn delete_bucket() {
     let bucket = Listbox::new(&buckets_names)
         .title("Which bucket do you want to delete?")
         .listbox_lines(5)
-        .prompt().unwrap().run().unwrap();
-
+        .prompt()
+        .unwrap()
+        .run()
+        .unwrap();
 
     let confirmation_text = format!("Are you sure that you want to delete {} ?", bucket);
     let mut confirm = Confirm::new(confirmation_text).prompt().unwrap();
     let confirm_string = confirm.run();
     let confirm_string = match confirm_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
     drop(confirm);
     let status = confirm_string == "yes" || confirm_string == "y";
@@ -67,7 +68,6 @@ pub async fn delete_bucket() {
         println!("Aborted by user");
         std::process::exit(1);
     }
-
 
     println!("{:?}", bucket);
     empty_bucket(&client, &bucket).await;

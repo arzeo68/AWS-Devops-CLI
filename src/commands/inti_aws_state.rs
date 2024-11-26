@@ -1,6 +1,8 @@
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::Region;
-use aws_sdk_dynamodb::types::{AttributeDefinition, KeySchemaElement, KeyType, ScalarAttributeType};
+use aws_sdk_dynamodb::types::{
+    AttributeDefinition, KeySchemaElement, KeyType, ScalarAttributeType,
+};
 use aws_sdk_s3::error::ProvideErrorMetadata;
 use promkit::preset::readline::Readline;
 use promkit::suggest::Suggest;
@@ -29,16 +31,22 @@ const AWS_REGION: [&str; 20] = [
 ];
 
 async fn create_bucket(bucket_name: &str, region: String) -> bool {
-
     let region_provider = RegionProviderChain::first_try(Region::new(region.clone()));
     let config = aws_config::from_env().region(region_provider).load().await;
     let client = aws_sdk_s3::Client::new(&config);
 
     let s3_cfg = aws_sdk_s3::types::CreateBucketConfiguration::builder()
-        .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::from(region.as_str()))
+        .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::from(
+            region.as_str(),
+        ))
         .build();
 
-    let response = client.create_bucket().create_bucket_configuration(s3_cfg).bucket(bucket_name).send().await;
+    let response = client
+        .create_bucket()
+        .create_bucket_configuration(s3_cfg)
+        .bucket(bucket_name)
+        .send()
+        .await;
 
     match response {
         Ok(_) => {
@@ -52,10 +60,7 @@ async fn create_bucket(bucket_name: &str, region: String) -> bool {
     }
 }
 
-pub async fn create_table(
-    table: &str,
-    key: &str,
-) -> bool {
+pub async fn create_table(table: &str, key: &str) -> bool {
     let config = aws_config::load_from_env().await;
     let client = aws_sdk_dynamodb::Client::new(&config);
     let a_name: String = key.into();
@@ -64,14 +69,14 @@ pub async fn create_table(
     let ad = AttributeDefinition::builder()
         .attribute_name(&a_name)
         .attribute_type(ScalarAttributeType::S)
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     let ks = KeySchemaElement::builder()
         .attribute_name(&a_name)
         .key_type(KeyType::Hash)
-        .build().unwrap();
-
-
+        .build()
+        .unwrap();
 
     let create_table_response = client
         .create_table()
@@ -88,28 +93,32 @@ pub async fn create_table(
             true
         }
         Err(error) => {
-            println!("Failed to create dynamoDB table:\n {:?}", error.message().unwrap());
+            println!(
+                "Failed to create dynamoDB table:\n {:?}",
+                error.message().unwrap()
+            );
             false
         }
     }
-
 }
 
-pub async fn  init_aws_state() {
-
+pub async fn init_aws_state() {
     let mut bucket_name = Readline::default()
         .title("How do you want to name the bucket?")
         .validator(
             |text| text.len() > 0,
             |text| format!("Your bucket name can't be empty {}", text.len()),
         )
-        .prompt().unwrap();
+        .prompt()
+        .unwrap();
     let bucket_name_string = bucket_name.run();
     let bucket_name_string = match bucket_name_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
-
 
     let mut dynamo = Readline::default()
         .title("How do you want to name the dynamoDB ?")
@@ -117,11 +126,15 @@ pub async fn  init_aws_state() {
             |text| text.len() > 0,
             |text| format!("Your dynamoDB name can't be empty {}", text.len()),
         )
-        .prompt().unwrap();
+        .prompt()
+        .unwrap();
     let dynamo_string = dynamo.run();
     let dynamo_string = match dynamo_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
 
     let mut region = Readline::default()
@@ -131,11 +144,15 @@ pub async fn  init_aws_state() {
             |text| AWS_REGION.contains(&text),
             |text| format!("You should enter a valid region {}", text),
         )
-        .prompt().unwrap();
+        .prompt()
+        .unwrap();
     let region_string = region.run();
     let region_string = match region_string {
         Ok(value) => value,
-        Err(_) => { print!("Aborted by user");std::process::exit(1); }
+        Err(_) => {
+            print!("Aborted by user");
+            std::process::exit(1);
+        }
     };
 
     drop(region);
