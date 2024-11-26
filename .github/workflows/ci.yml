@@ -1,26 +1,50 @@
-name: Cargo Build & Test
+name: Build Rust Binaries for Multiple Platforms
 
 on:
   push:
+    branches:
+      - main  # Trigger on push to the main branch
   pull_request:
-
-env:
-  CARGO_TERM_COLOR: always
+    branches:
+      - main  # Trigger on PRs to the main branch
 
 jobs:
-  build_binary:
-    name: Rust project - latest
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest  # The job will run on Ubuntu, but will cross-compile for multiple platforms
+    
     strategy:
       matrix:
-        toolchain:
-          - stable
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        architecture: [x86_64, aarch64]  # x86_64 and ARM64 (aarch64) architectures
+
     steps:
-      - uses: actions/checkout@v4
-      - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - run: cargo build --release
-      - name: Create artifact
-        uses: actions/upload-artifact@v3
+      - name: Checkout code
+        uses: actions/checkout@v2  # Check out the repository code
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1  # Set up Rust toolchain
         with:
-          name: rust-binary
-          path: target/release/devops-cli
+          toolchain: stable  # Use the stable Rust version
+          override: true  # Ensure Rust is overridden for the current job
+
+      - name: Install dependencies
+        run: cargo install --locked  # Install dependencies listed in Cargo.toml
+
+      - name: Install cross
+        run: cargo install cross  # Install cross tool to help with cross-compilation
+
+      - name: Build the project for ${{ matrix.os }} and ${{ matrix.architecture }}
+        run: |
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            cross build --target ${ARCH} --release  # Build for Linux (x86_64 or ARM)
+          elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cross build --target ${ARCH}-pc-windows-msvc --release  # Build for Windows (x86_64 or ARM)
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            cross build --target ${ARCH}-apple-darwin --release  # Build for macOS (x86_64 or ARM)
+          fi
+
+      - name: Create artifacts
+        uses: actions/upload-artifact@v3  # Upload the compiled binaries as artifacts
+        with:
+          name: rust-binary-${{ matrix.os }}-${{ matrix.architecture }}
+          path: target/${{ matrix.os }}-${{ matrix.architecture }}/release/devops-cli
