@@ -10,7 +10,11 @@ fn init_aws_state() -> Command {
 }
 
 fn ecs_connect_command() -> Command {
-    Command::new("connect").about("Connect to an instance (EC2 / ECS)")
+    Command::new("ecs").about("Connect or port forward to an ECS container")
+}
+
+fn ec2_connect_command() -> Command {
+    Command::new("ec2").about("Connect or port forward to an EC2 container")
 }
 
 fn port_forward() -> Command {
@@ -37,6 +41,7 @@ async fn main() {
         .subcommand(init_command())
         .subcommand(module_command())
         .subcommand(ecs_connect_command())
+        .subcommand(ec2_connect_command())
         .subcommand(init_aws_state())
         .subcommand(port_forward())
         .subcommand(delete_bucket_command())
@@ -45,10 +50,11 @@ async fn main() {
     match matches.subcommand() {
         Some(("init", _sub_matches)) => commands::init::init(),
         Some(("module", sub_matches)) => commands::module::module(sub_matches),
-        Some(("connect", _sub_matches)) => commands::ecs_connect::instance_connect().await,
+        Some(("ecs", _sub_matches)) => commands::ecs_connect::ecs_connect().await,
+        Some(("ec2", _sub_matches)) => commands::ec2_connect::ec2_connect().await,
         Some(("init-aws-state", _sub_matches)) => commands::inti_aws_state::init_aws_state().await,
         Some(("port-forward", _sub_matches)) => commands::port_forward::port_forward().await,
         Some(("delete-bucket", _sub_matches)) => commands::delete_bucket::delete_bucket().await,
-        _ => println!("No subcommand was used, please use the --help flag for more information"),
+        _ => println!("No valid subcommand was used, please use the --help flag for more information"),
     }
 }

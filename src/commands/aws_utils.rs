@@ -1,11 +1,24 @@
 use crate::commands::ecs_connect::{AwsResource, ECSContainer};
 use aws_sdk_ec2 as ec2;
 use aws_sdk_ecs as ecs;
+use crossterm::style::Print;
 
 #[derive(Debug)]
 pub struct EC2Instance {
     pub(crate) instance_id: String,
     pub(crate) name: String,
+}
+
+pub(crate) async fn ecs_execute_command(cluster: &str, task: &str, container: &str, command: &str) {
+    ctrlc::set_handler(move || {}).expect("Error setting Ctrl-C handler");
+    let command = format!("aws ecs execute-command --cluster {} --task {} --container {} --command '{}' --interactive", cluster, task, container, command);
+    println!("{}", command);
+    let output = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(command)
+        .spawn()
+        .expect("failed to execute process");
+    let _ = output.wait_with_output();
 }
 
 pub(crate) async fn list_ec2_instances(client: &ec2::Client) -> Vec<EC2Instance> {
@@ -61,6 +74,7 @@ pub(crate) async fn list_task_container(
 
     for container in containers.unwrap().tasks.unwrap().clone() {
         for container in container.containers.unwrap().clone() {
+            if container.runtime_id == None { continue }
             let container_name = container.name.clone().unwrap();
             res.push(ECSContainer {
                 name: container_name,
@@ -83,6 +97,7 @@ pub(crate) async fn list_service_tasks(
         .service_name(service)
         .send()
         .await;
+
     if tasks.is_err() {
         println!("Error listing tasks: {:?}", tasks.err());
         return vec![];
