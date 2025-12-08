@@ -1,7 +1,8 @@
 use crate::commands::ecs_connect::{AwsResource, ECSContainer};
 use aws_sdk_ec2 as ec2;
 use aws_sdk_ecs as ecs;
-use crossterm::style::Print;
+use aws_sdk_ecs::operation::describe_clusters::{DescribeClustersOutput};
+use aws_sdk_ecs::types::Service;
 
 #[derive(Debug)]
 pub struct EC2Instance {
@@ -107,7 +108,6 @@ pub(crate) async fn list_service_tasks(
     for task in tasks.unwrap().task_arns.unwrap().clone() {
         let task_name = task.split("/").last().unwrap().to_string();
         res.push(AwsResource {
-            arn: task,
             name: task_name,
         });
     }
@@ -115,24 +115,22 @@ pub(crate) async fn list_service_tasks(
     res
 }
 
-pub(crate) async fn list_cluster_services(client: &ecs::Client, cluster: &str) -> Vec<AwsResource> {
-    let mut res: Vec<AwsResource> = Vec::new();
-    let services = client.list_services().cluster(cluster).send().await;
+pub(crate) async fn list_cluster_services(client: &ecs::Client, cluster: &str) -> Vec<Service> {
+    let mut res: Vec<Service> = Vec::new();
+    let services = client.list_services().cluster(cluster).max_results(10).send().await;
     if services.is_err() {
         println!("Error listing services: {:?}", services.err());
         return vec![];
     }
 
     let services = services.unwrap();
-    let services_arn = services.service_arns.unwrap();
-
-    for service in services_arn {
-        let service_name = service.split("/").last().unwrap().to_string();
-        res.push(AwsResource {
-            arn: service.to_string().clone(),
-            name: service_name,
-        });
+    let describe_services = client.describe_services().cluster(cluster).set_services(services.service_arns).send().await;
+    if describe_services.is_err() {
+        println!("Error describing services: {:?}", describe_services.err());
+        return vec![];
     }
+    describe_services.unwrap().services.unwrap().iter().for_each(|s| res.push(s.clone()));
+
 
     if services.next_token.is_some() {
         let mut next_token = services.next_token.clone().unwrap();
@@ -141,6 +139,7 @@ pub(crate) async fn list_cluster_services(client: &ecs::Client, cluster: &str) -
                 .list_services()
                 .cluster(cluster)
                 .next_token(next_token)
+                .max_results(10)
                 .send()
                 .await;
             if services.is_err() {
@@ -149,15 +148,12 @@ pub(crate) async fn list_cluster_services(client: &ecs::Client, cluster: &str) -
             }
 
             let services = services.unwrap();
-            let services_arn = services.service_arns.unwrap();
-
-            for service in services_arn {
-                let service_name = service.split("/").last().unwrap().to_string();
-                res.push(AwsResource {
-                    arn: service.to_string().clone(),
-                    name: service_name,
-                });
+            let describe_services = client.describe_services().cluster(cluster).set_services(services.service_arns).send().await;
+            if describe_services.is_err() {
+                println!("Error describing services: {:?}", describe_services.err());
+                return vec![];
             }
+            describe_services.unwrap().services.unwrap().iter().for_each(|s| res.push(s.clone()));
 
             if services.next_token.is_some() {
                 next_token = services.next_token.clone().unwrap();
@@ -170,19 +166,16 @@ pub(crate) async fn list_cluster_services(client: &ecs::Client, cluster: &str) -
     res
 }
 
-pub(crate) async fn get_clusters(client: &ecs::Client) -> Vec<AwsResource> {
-    let mut res: Vec<AwsResource> = Vec::new();
+pub(crate) async fn get_clusters(client: &ecs::Client) -> Option<DescribeClustersOutput> {
     let clusters = client.list_clusters().send().await;
     if clusters.is_err() {
         println!("Error listing clusters: {:?}", clusters.err());
-        return vec![];
+        return None;
     }
-    for cluster in clusters.unwrap().cluster_arns.unwrap().clone() {
-        let cluster_name = cluster.split("/").last().unwrap().to_string();
-        res.push(AwsResource {
-            arn: cluster,
-            name: cluster_name,
-        });
+    let cluster_data = client.describe_clusters().set_clusters(clusters.unwrap().cluster_arns).send().await;
+    if cluster_data.is_err() {
+        println!("Error describing clusters: {:?}", cluster_data.err());
+        return None;
     }
-    res
+    Some(cluster_data.unwrap())
 }

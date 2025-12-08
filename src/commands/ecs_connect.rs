@@ -2,16 +2,16 @@ use crate::commands::aws_utils::{ecs_execute_command, get_clusters, list_cluster
 use ratatui::crossterm::event;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::{
-    layout::{Constraint, Layout, Alignment},
+    layout::{Alignment, Constraint, Layout},
+    style::{Color, Modifier, Style},
     widgets::{Block, List, ListItem, ListState, Paragraph},
     Frame,
-    style::{Style, Modifier, Color},
 };
 
-use ratatui::text::{Span, Line};
+use ratatui::text::{Line, Span};
 
 pub struct AwsResource {
-    pub(crate) arn: String,
+    #[warn(dead_code)]
     pub(crate) name: String,
 }
 
@@ -57,8 +57,8 @@ impl Page {
 
 struct AppState {
     page: Page,
-    clusters: Vec<String>,
-    services: Vec<String>,
+    clusters: Vec<aws_sdk_ecs::types::Cluster>,
+    services: Vec<aws_sdk_ecs::types::Service>,
     tasks: Vec<String>,
     containers: Vec<String>,
     runtime_ids: Vec<String>,
@@ -146,11 +146,12 @@ async fn handle_events(state: &mut AppState) -> std::io::Result<bool> {
                     let cluster = &state.clusters[state.idx_cluster];
                     let task = &state.tasks[state.idx_task];
                     let container = &state.containers[state.idx_container];
-                    if cluster.is_empty() || task.is_empty() || container.is_empty() {
+                    if task.is_empty() || container.is_empty() {
                         return Ok(false);
                     }
                     ratatui::restore();
-                    ecs_execute_command(cluster, task, container, "/bin/sh").await;
+                    let tmp = cluster.cluster_arn.clone().unwrap();
+                    ecs_execute_command(tmp.as_str(), task, container, "/bin/sh").await;
                     return Ok(true);
                 }
             }
@@ -160,14 +161,14 @@ async fn handle_events(state: &mut AppState) -> std::io::Result<bool> {
                     let cluster = &state.clusters[state.idx_cluster];
                     let task = &state.tasks[state.idx_task];
                     let runtime_id = &state.runtime_ids[state.idx_container];
-                    if cluster.is_empty() || task.is_empty() || runtime_id.is_empty() {
+                    if task.is_empty() || runtime_id.is_empty() {
                         return Ok(false);
                     }
                     ratatui::restore();
                     let host = crate::commands::port_forward::select_host(&"What host do you want to use?".to_string());
                     let remote_port = crate::commands::port_forward::select_port(&"What remote port do you want to use?".to_string());
                     let local_port = crate::commands::port_forward::select_port(&"What local port do you want to use?".to_string());
-                    let target = format!("ecs:{}_{}_{}", cluster, task, runtime_id);
+                    let target = format!("ecs:{}_{}_{}", cluster.cluster_name.clone().unwrap(), task, runtime_id);
                     crate::commands::port_forward::connect_to_ecs_command(&target, &host, &local_port, &remote_port).await;
                     return Ok(true);
                 }
@@ -193,46 +194,110 @@ fn draw_list_block<'a>(title: &'a str, items: &'a [String], selected: usize) -> 
         ls.select(None);
     }
     let list = List::new(list_items)
-        .block(Block::bordered().title(title))
+        .block(Block::bordered().title(title).title_alignment(Alignment::Center))
         .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow));
     (list, ls)
 }
 
 fn draw_ecs_connect(frame: &mut Frame, state: &AppState) {
-    use Constraint::{Fill, Length, Min};
+    use Constraint::{Fill, Length};
 
-    let vertical = Layout::vertical([Min(0), Length(3)]);
-    let [main_area, status_area] = vertical.areas(frame.area());
-    let horizontal = Layout::horizontal([Fill(1); 2]);
-    let [left_area, right_area] = horizontal.areas(main_area);
+    let vertical = Layout::vertical([Length(10),Fill(3),Length(3)]);
+    let [details_area, main_area, status_area] = vertical.areas(frame.area());
 
+    let cluster_names: Vec<String>;
+    let service_names: Vec<String>;
 
     // left: current page list
     let (list, mut list_state) = match state.page {
-        Page::Cluster => draw_list_block(Page::Cluster.title(), &state.clusters, state.idx_cluster),
-        Page::Services => draw_list_block(Page::Services.title(), &state.services, state.idx_service),
+        Page::Cluster => {
+            cluster_names = state
+                .clusters
+                .iter()
+                .map(|c| c.cluster_name.clone().unwrap_or_else(|| "None".to_string()))
+                .collect();
+            draw_list_block(Page::Cluster.title(), &cluster_names, state.idx_cluster)
+        }
+        Page::Services => {
+            service_names = state
+                .services
+                .iter()
+                .map(|c| c.service_name.clone().unwrap_or_else(|| "None".to_string()))
+                .collect();
+            draw_list_block(Page::Services.title(), &service_names, state.idx_service)
+        }
         Page::Tasks => draw_list_block(Page::Tasks.title(), &state.tasks, state.idx_task),
         Page::Container => draw_list_block(Page::Container.title(), &state.containers, state.idx_container),
     };
-    frame.render_stateful_widget(list, left_area, &mut list_state);
+    frame.render_stateful_widget(list, main_area, &mut list_state);
 
-    // right: details / selection summary as Vec<Line>
-    let mut details = vec![
-        Line::from(Span::raw(format!("Page: {}", state.page.title()))),
-        Line::from(""),
-        Line::from(Span::raw(format!("Cluster:  {}", state.clusters.get(state.idx_cluster).unwrap_or(&"None".to_string())))),
-        Line::from(Span::raw(format!("Service: {}", state.services.get(state.idx_service).unwrap_or(&"None".to_string())))),
-        Line::from(Span::raw(format!("Task: {}", state.tasks.get(state.idx_task).unwrap_or(&"None".to_string())))),
-        Line::from(Span::raw(format!("Container: {}", state.containers.get(state.idx_container).unwrap_or(&"None".to_string())))),
-        Line::from(""),
-        Line::from("Use ←/→ to change page, ↑/↓ to move selection, Enter to advance, q to quit."),
-    ];
-    if state.containers.get(state.idx_container).is_some() {
-        details.push(Line::from("Press 'c' to connect to the selected container."));
-        details.push(Line::from("Press 'p' to port-forward a port from the selected container."));
+    // Top: details about the current selection
+
+
+    let details_block = Block::bordered().title("Details").title_alignment(Alignment::Center);
+    let inner = details_block.inner(details_area);
+    frame.render_widget(details_block, details_area);
+
+    // split inner area into three columns
+    let cols = Layout::horizontal([
+        Constraint::Percentage(33),
+        Constraint::Percentage(33),
+        Constraint::Percentage(34),
+    ])
+    .split(inner);
+
+    let current_cluster = state.clusters.get(state.idx_cluster).expect("No Cluster found!");
+    let current_service  = state.services.get(state.idx_service);
+
+    // styles for key and value
+    let key_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
+    let val_style = Style::default().fg(Color::Yellow);
+
+    // helper to build a key/value Line
+    let kv_line = |key: &str, value: String| {
+        Line::from(vec![
+            Span::styled(format!("{}: ", key), key_style),
+            Span::styled(value, val_style),
+        ])
+    };
+
+    // build column contents
+    let mut col1 = vec![kv_line("Cluster", current_cluster.cluster_name.clone().unwrap_or("<empty>".to_string())) ];
+    let mut col2 = vec![];
+    let mut col3 = vec![ Line::from("Use ←/→ to change page, ↑/↓ to move selection, Enter to advance, q to quit.") ];
+    if let Some(service) = current_service {
+        let task_def = service.task_definition.clone().unwrap_or("<empty>".to_string()).split("/").last().unwrap().to_string();
+
+        col1.push(kv_line("Service", service.service_name.clone().unwrap_or("<empty>".to_string())));
+        col1.push(kv_line("Status", service.status.clone().unwrap_or("<empty>".to_string())));
+        col1.push(kv_line("Platform Family", service.platform_family.clone().unwrap_or("<empty>".to_string())));
+        col1.push(kv_line("Platform Version", service.platform_version.clone().unwrap_or("<empty>".to_string())));
+        col1.push(kv_line("Task Definition", task_def));
+
+        col2.push(kv_line("Desired count", service.desired_count.to_string()));
+        col2.push(kv_line("Running count", service.running_count.to_string()));
+        col2.push(kv_line("Pending count", service.pending_count.to_string()));
+        col2.push(kv_line("Created At", service.created_at.unwrap().to_string()));
+        col2.push(kv_line("Execute command", service.enable_execute_command.to_string()));
+        col2.push(kv_line("Managed tags", service.enable_ecs_managed_tags.to_string()));
+
+
+
     }
-    let para = Paragraph::new(details).block(Block::bordered().title("Details"));
-    frame.render_widget(para, right_area);
+
+    if state.containers.get(state.idx_container).is_some() {
+        col3.push(Line::from("Press 'c' to connect to the selected container."));
+        col3.push(Line::from("Press 'p' to port-forward a port from the selected container."));
+    }
+
+    // render paragraphs into the three columns
+    let p1 = Paragraph::new(col1).alignment(Alignment::Left);
+    let p2 = Paragraph::new(col2).alignment(Alignment::Left);
+    let p3 = Paragraph::new(col3).alignment(Alignment::Left);
+
+    frame.render_widget(p1, cols[0]);
+    frame.render_widget(p2, cols[1]);
+    frame.render_widget(p3, cols[2]);
 
     // Footer: four boxes, one per page, highlight the current one
     let footer_chunks = Layout::horizontal([
@@ -272,7 +337,14 @@ pub async fn run_ecs_connect(terminal: &mut ratatui::DefaultTerminal) -> std::io
     let config = aws_config::load_from_env().await;
     let client = aws_sdk_ecs::Client::new(&config);
     let clusters = get_clusters(&client).await;
-    state.clusters = clusters.iter().map(|c| c.name.clone()).collect();
+    match clusters {
+        None => {
+            println!("No ECS clusters found");
+            return Ok(());
+        }
+        _ => {}
+    }
+    state.clusters = clusters.unwrap().clusters.expect("No clusters found").clone();
 
     loop {
         // pass the state reference into the draw closure
@@ -281,18 +353,18 @@ pub async fn run_ecs_connect(terminal: &mut ratatui::DefaultTerminal) -> std::io
             break Ok(());
         }
         if state.page == Page::Services && state.services.is_empty() {
-            let cluster_arn = &clusters[state.idx_cluster].arn;
-            let services = list_cluster_services(&client, cluster_arn).await;
-            state.services = services.iter().map(|s| s.name.clone()).collect();
+            let cluster_arn = state.clusters.get(state.idx_cluster).unwrap().clone().cluster_arn;
+            let services = list_cluster_services(&client, cluster_arn.unwrap().as_str()).await;
+            state.services = services
         } else if state.page == Page::Tasks && state.tasks.is_empty() {
-            let cluster_arn = &clusters[state.idx_cluster].arn;
-            let service_name = &state.services[state.idx_service];
-            let tasks = list_service_tasks(&client, cluster_arn, service_name).await;
+            let cluster_arn = state.clusters.get(state.idx_cluster).unwrap().clone().cluster_arn;
+            let service_name = state.services.get(state.idx_service).unwrap().clone().service_name.unwrap();
+            let tasks = list_service_tasks(&client, cluster_arn.unwrap().as_str(), service_name.as_str()).await;
             state.tasks = tasks.iter().map(|t| t.name.clone()).collect();
         } else if state.page == Page::Container && state.containers.is_empty() {
-            let cluster_arn = &clusters[state.idx_cluster].arn;
+            let cluster_arn = state.clusters.get(state.idx_cluster).unwrap().clone().cluster_arn;
             let task_id = &state.tasks[state.idx_task];
-            let containers = list_task_container(&client, cluster_arn, task_id).await;
+            let containers = list_task_container(&client, cluster_arn.unwrap().as_str(), task_id).await;
             state.containers = containers.iter().map(|c| c.name.clone()).collect();
             state.runtime_ids = containers.iter().map(|c| c.runtime_id.clone()).collect();
         }

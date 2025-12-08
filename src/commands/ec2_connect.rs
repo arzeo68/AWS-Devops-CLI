@@ -149,7 +149,7 @@ fn draw_ecs_connect(frame: &mut Frame, state: &AppState) {
     frame.render_stateful_widget(list, left_area, &mut list_state);
 
     // right: details / selection summary as Vec<Line>
-    let mut details = vec![
+    let details = vec![
         Line::from(Span::raw(format!("Page: {}", state.page.title()))),
         Line::from(""),
         Line::from(Span::raw(format!("Instance:  {}", state.instance_names.get(state.idx_instance).unwrap_or(&"None".to_string())))),
