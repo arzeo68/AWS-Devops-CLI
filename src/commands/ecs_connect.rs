@@ -1,4 +1,5 @@
-use crate::commands::aws_utils::{ecs_execute_command, get_clusters, list_cluster_services, list_service_tasks, list_task_container};
+use crate::commands::aws_utils::{ecs_execute_command, force_new_deployment, get_clusters, list_cluster_services, list_service_tasks, list_task_container, set_service_desired_count, AwsCtx};
+use promkit::preset::readline::Readline;
 use ratatui::crossterm::event;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::{
@@ -66,6 +67,7 @@ struct AppState {
     idx_service: usize,
     idx_task: usize,
     idx_container: usize,
+    ctx: AwsCtx,
 }
 
 impl Default for AppState {
@@ -81,12 +83,26 @@ impl Default for AppState {
             idx_service: 0,
             idx_task: 0,
             idx_container: 0,
+            ctx: AwsCtx::default(),
         }
     }
 }
 
 fn clamp_index(idx: usize, len: usize) -> usize {
     if len == 0 { 0 } else { idx.min(len - 1) }
+}
+
+/// Prompt for a whole number (used for scaling). Returns None if aborted/invalid.
+fn prompt_i32(title: &str) -> Option<i32> {
+    let mut input = Readline::default()
+        .title(title)
+        .validator(
+            |text| text.parse::<i32>().is_ok(),
+            |text| format!("Enter a whole number: {}", text),
+        )
+        .prompt()
+        .ok()?;
+    input.run().ok()?.parse::<i32>().ok()
 }
 
 fn reset_following(state: &mut AppState, page: Page) {
@@ -151,7 +167,7 @@ async fn handle_events(state: &mut AppState) -> std::io::Result<bool> {
                     }
                     ratatui::restore();
                     let tmp = cluster.cluster_arn.clone().unwrap();
-                    ecs_execute_command(tmp.as_str(), task, container, "/bin/sh").await;
+                    ecs_execute_command(&state.ctx, tmp.as_str(), task, container, "/bin/sh").await;
                     return Ok(true);
                 }
             }
@@ -169,8 +185,45 @@ async fn handle_events(state: &mut AppState) -> std::io::Result<bool> {
                     let remote_port = crate::commands::port_forward::select_port(&"What remote port do you want to use?".to_string());
                     let local_port = crate::commands::port_forward::select_port(&"What local port do you want to use?".to_string());
                     let target = format!("ecs:{}_{}_{}", cluster.cluster_name.clone().unwrap(), task, runtime_id);
-                    crate::commands::port_forward::connect_to_ecs_command(&target, &host, &local_port, &remote_port).await;
+                    crate::commands::port_forward::connect_to_ecs_command(&state.ctx, &target, &host, &local_port, &remote_port).await;
                     return Ok(true);
+                }
+            }
+
+            KeyCode::Char('r') => {
+                if state.page == Page::Services {
+                    let cluster = state.clusters[state.idx_cluster].cluster_arn.clone();
+                    let service = state.services.get(state.idx_service).and_then(|s| s.service_name.clone());
+                    if let (Some(cluster), Some(service)) = (cluster, service) {
+                        ratatui::restore();
+                        let config = state.ctx.config().await;
+                        let client = aws_sdk_ecs::Client::new(&config);
+                        if force_new_deployment(&client, &cluster, &service).await {
+                            println!("Triggered force-new-deployment for service '{}'", service);
+                        }
+                        return Ok(true);
+                    }
+                }
+            }
+
+            KeyCode::Char('s') => {
+                if state.page == Page::Services {
+                    let cluster = state.clusters[state.idx_cluster].cluster_arn.clone();
+                    let service = state.services.get(state.idx_service).and_then(|s| s.service_name.clone());
+                    if let (Some(cluster), Some(service)) = (cluster, service) {
+                        ratatui::restore();
+                        match prompt_i32(&format!("New desired count for '{}'?", service)) {
+                            Some(count) if count >= 0 => {
+                                let config = state.ctx.config().await;
+                                let client = aws_sdk_ecs::Client::new(&config);
+                                if set_service_desired_count(&client, &cluster, &service, count).await {
+                                    println!("Set desired count of '{}' to {}", service, count);
+                                }
+                            }
+                            _ => println!("Aborted: invalid count"),
+                        }
+                        return Ok(true);
+                    }
                 }
             }
 
@@ -202,8 +255,8 @@ fn draw_list_block<'a>(title: &'a str, items: &'a [String], selected: usize) -> 
 fn draw_ecs_connect(frame: &mut Frame, state: &AppState) {
     use Constraint::{Fill, Length};
 
-    let vertical = Layout::vertical([Length(10),Fill(3),Length(3)]);
-    let [details_area, main_area, status_area] = vertical.areas(frame.area());
+    let vertical = Layout::vertical([Length(10),Fill(3),Length(1),Length(3)]);
+    let [details_area, main_area, keyhint_area, status_area] = vertical.areas(frame.area());
 
     let cluster_names: Vec<String>;
     let service_names: Vec<String>;
@@ -285,6 +338,11 @@ fn draw_ecs_connect(frame: &mut Frame, state: &AppState) {
 
     }
 
+    if state.page == Page::Services && current_service.is_some() {
+        col3.push(Line::from("Press 'r' to restart (force new deployment)."));
+        col3.push(Line::from("Press 's' to scale the desired count."));
+    }
+
     if state.containers.get(state.idx_container).is_some() {
         col3.push(Line::from("Press 'c' to connect to the selected container."));
         col3.push(Line::from("Press 'p' to port-forward a port from the selected container."));
@@ -298,6 +356,19 @@ fn draw_ecs_connect(frame: &mut Frame, state: &AppState) {
     frame.render_widget(p1, cols[0]);
     frame.render_widget(p2, cols[1]);
     frame.render_widget(p3, cols[2]);
+
+    // Full-width, per-page key-hint bar (always visible, never clipped into a column)
+    let hint = match state.page {
+        Page::Cluster => " ↑/↓ select   Enter open   q quit",
+        Page::Services => " ↑/↓ select   Enter open   [r] restart   [s] scale   ← back   q quit",
+        Page::Tasks => " ↑/↓ select   Enter open   ← back   q quit",
+        Page::Container => " ↑/↓ select   [c] connect   [p] port-forward   ← back   q quit",
+    };
+    let hint_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+    frame.render_widget(Paragraph::new(Span::styled(hint, hint_style)), keyhint_area);
 
     // Footer: four boxes, one per page, highlight the current one
     let footer_chunks = Layout::horizontal([
@@ -330,11 +401,11 @@ fn draw_ecs_connect(frame: &mut Frame, state: &AppState) {
     }
 }
 
-pub async fn run_ecs_connect(terminal: &mut ratatui::DefaultTerminal) -> std::io::Result<()> {
+pub async fn run_ecs_connect(terminal: &mut ratatui::DefaultTerminal, ctx: AwsCtx) -> std::io::Result<()> {
     // initial state - optionally load clusters here asynchronously
-    let mut state = AppState::default();
+    let mut state = AppState { ctx, ..Default::default() };
 
-    let config = aws_config::load_from_env().await;
+    let config = state.ctx.config().await;
     let client = aws_sdk_ecs::Client::new(&config);
     let clusters = get_clusters(&client).await;
     match clusters {
@@ -372,8 +443,8 @@ pub async fn run_ecs_connect(terminal: &mut ratatui::DefaultTerminal) -> std::io
 }
 
 
-pub async fn ecs_connect() {
+pub async fn ecs_connect(ctx: AwsCtx) {
     let mut terminal = ratatui::init();
-    run_ecs_connect(&mut terminal).await.expect("TODO: Ecs connect failed");
+    run_ecs_connect(&mut terminal, ctx).await.expect("TODO: Ecs connect failed");
     ratatui::restore();
 }

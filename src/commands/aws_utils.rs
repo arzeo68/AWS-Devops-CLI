@@ -4,21 +4,73 @@ use aws_sdk_ecs as ecs;
 use aws_sdk_ecs::operation::describe_clusters::{DescribeClustersOutput};
 use aws_sdk_ecs::types::Service;
 
+/// Shared AWS context derived from the global `--profile` / `--region` flags.
+/// Threaded into both the SDK config and any spawned `aws` CLI subprocess.
+#[derive(Clone, Default, Debug)]
+pub struct AwsCtx {
+    pub profile: Option<String>,
+    pub region: Option<String>,
+}
+
+impl AwsCtx {
+    pub fn from_matches(matches: &clap::ArgMatches) -> Self {
+        Self {
+            profile: matches.get_one::<String>("profile").cloned(),
+            region: matches.get_one::<String>("region").cloned(),
+        }
+    }
+
+    /// Build an SDK config honoring the selected profile/region, falling back to
+    /// the standard environment/credential chain when unset.
+    pub async fn config(&self) -> aws_config::SdkConfig {
+        let mut loader = aws_config::from_env();
+        if let Some(profile) = &self.profile {
+            loader = loader.profile_name(profile);
+        }
+        if let Some(region) = &self.region {
+            loader = loader.region(aws_config::Region::new(region.clone()));
+        }
+        loader.load().await
+    }
+
+    /// Inject profile/region into a spawned `aws` CLI process so the subprocess
+    /// targets the same account/region as the SDK calls.
+    pub fn apply_env(&self, cmd: &mut std::process::Command) {
+        if let Some(profile) = &self.profile {
+            cmd.env("AWS_PROFILE", profile);
+        }
+        if let Some(region) = &self.region {
+            cmd.env("AWS_REGION", region);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct EC2Instance {
     pub(crate) instance_id: String,
     pub(crate) name: String,
 }
 
-pub(crate) async fn ecs_execute_command(cluster: &str, task: &str, container: &str, command: &str) {
+pub(crate) async fn ecs_execute_command(ctx: &AwsCtx, cluster: &str, task: &str, container: &str, command: &str) {
     ctrlc::set_handler(move || {}).expect("Error setting Ctrl-C handler");
-    let command = format!("aws ecs execute-command --cluster {} --task {} --container {} --command '{}' --interactive", cluster, task, container, command);
-    println!("{}", command);
-    let output = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(command)
-        .spawn()
-        .expect("failed to execute process");
+    // Pass arguments directly (no shell) so cluster/task/container names can't
+    // be interpreted by /bin/sh.
+    let mut cmd = std::process::Command::new("aws");
+    cmd.args([
+        "ecs",
+        "execute-command",
+        "--cluster",
+        cluster,
+        "--task",
+        task,
+        "--container",
+        container,
+        "--command",
+        command,
+        "--interactive",
+    ]);
+    ctx.apply_env(&mut cmd);
+    let output = cmd.spawn().expect("failed to execute process");
     let _ = output.wait_with_output();
 }
 
@@ -54,6 +106,47 @@ pub(crate) async fn list_ec2_instances(client: &ec2::Client) -> Vec<EC2Instance>
         }
     }
     res
+}
+
+/// Force a new deployment of a service (rolling restart of its tasks).
+pub(crate) async fn force_new_deployment(client: &ecs::Client, cluster: &str, service: &str) -> bool {
+    let resp = client
+        .update_service()
+        .cluster(cluster)
+        .service(service)
+        .force_new_deployment(true)
+        .send()
+        .await;
+    match resp {
+        Ok(_) => true,
+        Err(err) => {
+            println!("Error restarting service: {:?}", err);
+            false
+        }
+    }
+}
+
+/// Update a service's desired task count (scale up/down).
+pub(crate) async fn set_service_desired_count(
+    client: &ecs::Client,
+    cluster: &str,
+    service: &str,
+    count: i32,
+) -> bool {
+    let resp = client
+        .update_service()
+        .cluster(cluster)
+        .service(service)
+        .desired_count(count)
+        .send()
+        .await;
+    match resp {
+        Ok(_) => true,
+        Err(err) => {
+            println!("Error scaling service: {:?}", err);
+            false
+        }
+    }
 }
 
 pub(crate) async fn list_task_container(

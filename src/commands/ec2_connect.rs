@@ -1,4 +1,4 @@
-use crate::commands::aws_utils::{list_ec2_instances};
+use crate::commands::aws_utils::{list_ec2_instances, AwsCtx};
 use aws_sdk_ec2 as ec2;
 use ratatui::crossterm::event;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind};
@@ -41,6 +41,7 @@ struct AppState {
     instance_names: Vec<String>,
     instance_ids: Vec<String>,
     idx_instance: usize,
+    ctx: AwsCtx,
 }
 
 impl Default for AppState {
@@ -50,6 +51,7 @@ impl Default for AppState {
             instance_names: Vec::new(),
             instance_ids: Vec::new(),
             idx_instance: 0,
+            ctx: AwsCtx::default(),
         }
     }
 }
@@ -87,7 +89,7 @@ async fn handle_events(state: &mut AppState) -> std::io::Result<bool> {
                     let idx = state.idx_instance;
                     let target = &state.instance_ids[idx];
                     ratatui::restore();
-                    connect_to_ec2_command(&target).await;
+                    connect_to_ec2_command(&state.ctx, &target).await;
                     return Ok(true);
                 }
             }
@@ -103,7 +105,7 @@ async fn handle_events(state: &mut AppState) -> std::io::Result<bool> {
                     let host = crate::commands::port_forward::select_host(&"What host do you want to use?".to_string());
                     let remote_port = crate::commands::port_forward::select_port(&"What remote port do you want to use?".to_string());
                     let local_port = crate::commands::port_forward::select_port(&"What local port do you want to use?".to_string());
-                    crate::commands::port_forward::connect_to_ecs_command(&target, &host, &local_port, &remote_port).await;
+                    crate::commands::port_forward::connect_to_ecs_command(&state.ctx, &target, &host, &local_port, &remote_port).await;
                     return Ok(true);
                 }
             }
@@ -190,11 +192,11 @@ fn draw_ecs_connect(frame: &mut Frame, state: &AppState) {
     }
 }
 
-pub async fn run_ec2_connect(terminal: &mut ratatui::DefaultTerminal) -> std::io::Result<()> {
+pub async fn run_ec2_connect(terminal: &mut ratatui::DefaultTerminal, ctx: AwsCtx) -> std::io::Result<()> {
     // initial state - load EC2 instances into the first page
-    let mut state = AppState::default();
+    let mut state = AppState { ctx, ..Default::default() };
 
-    let config = aws_config::load_from_env().await;
+    let config = state.ctx.config().await;
     let client = ec2::Client::new(&config);
     let instances = list_ec2_instances(&client).await;
     state.instance_names = instances.iter().map(|i| i.name.clone()).collect();
@@ -212,24 +214,19 @@ pub async fn run_ec2_connect(terminal: &mut ratatui::DefaultTerminal) -> std::io
     }
 }
 
-async fn connect_to_ec2_command(target: &str) {
+async fn connect_to_ec2_command(ctx: &AwsCtx, target: &str) {
     ctrlc::set_handler(move || {}).expect("Error setting Ctrl-C handler");
 
-    let command = format!("aws ssm start-session --target {}", target);
-
-    println!("{}", command);
-
-    let output = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(command)
-        .spawn()
-        .expect("failed to execute process");
+    let mut cmd = std::process::Command::new("aws");
+    cmd.args(["ssm", "start-session", "--target", target]);
+    ctx.apply_env(&mut cmd);
+    let output = cmd.spawn().expect("failed to execute process");
     let _ = output.wait_with_output();
 }
 
 
-pub async fn ec2_connect() {
+pub async fn ec2_connect(ctx: AwsCtx) {
     let mut terminal = ratatui::init();
-    run_ec2_connect(&mut terminal).await.expect("Can't connect to ec2");
+    run_ec2_connect(&mut terminal, ctx).await.expect("Can't connect to ec2");
     ratatui::restore();
 }

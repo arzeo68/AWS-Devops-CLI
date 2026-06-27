@@ -1,5 +1,4 @@
-use aws_config::meta::region::RegionProviderChain;
-use aws_config::Region;
+use crate::commands::aws_utils::AwsCtx;
 use aws_sdk_dynamodb::types::{
     AttributeDefinition, KeySchemaElement, KeyType, ScalarAttributeType,
 };
@@ -30,9 +29,14 @@ const AWS_REGION: [&str; 20] = [
     "us-gov-west-1",
 ];
 
-async fn create_bucket(bucket_name: &str, region: String) -> bool {
-    let region_provider = RegionProviderChain::first_try(Region::new(region.clone()));
-    let config = aws_config::from_env().region(region_provider).load().await;
+async fn create_bucket(bucket_name: &str, region: String, ctx: &AwsCtx) -> bool {
+    // Bucket creation needs the location-constraint region explicitly, so override
+    // the context region with the prompted one while keeping the selected profile.
+    let bucket_ctx = AwsCtx {
+        profile: ctx.profile.clone(),
+        region: Some(region.clone()),
+    };
+    let config = bucket_ctx.config().await;
     let client = aws_sdk_s3::Client::new(&config);
 
     let s3_cfg = aws_sdk_s3::types::CreateBucketConfiguration::builder()
@@ -60,8 +64,8 @@ async fn create_bucket(bucket_name: &str, region: String) -> bool {
     }
 }
 
-pub async fn create_table(table: &str, key: &str) -> bool {
-    let config = aws_config::load_from_env().await;
+pub async fn create_table(table: &str, key: &str, ctx: &AwsCtx) -> bool {
+    let config = ctx.config().await;
     let client = aws_sdk_dynamodb::Client::new(&config);
     let a_name: String = key.into();
     let table_name: String = table.into();
@@ -102,7 +106,7 @@ pub async fn create_table(table: &str, key: &str) -> bool {
     }
 }
 
-pub async fn init_aws_state() {
+pub async fn init_aws_state(ctx: &AwsCtx) {
     let mut bucket_name = Readline::default()
         .title("How do you want to name the bucket?")
         .validator(
@@ -157,12 +161,12 @@ pub async fn init_aws_state() {
 
     drop(region);
 
-    if create_bucket(bucket_name_string.as_str(), region_string).await == false {
+    if create_bucket(bucket_name_string.as_str(), region_string, ctx).await == false {
         println!("\nFailed to create bucket, exiting");
         return;
     }
 
-    if create_table(dynamo_string.as_str(), "LockID").await == false {
+    if create_table(dynamo_string.as_str(), "LockID", ctx).await == false {
         println!("\nFailed to create dynamoDB table, exiting");
         return;
     }
