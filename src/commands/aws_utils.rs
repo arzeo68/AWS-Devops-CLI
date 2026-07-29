@@ -1,4 +1,5 @@
 use crate::commands::ecs_connect::{AwsResource, ECSContainer};
+use colored::Colorize;
 use aws_sdk_ec2 as ec2;
 use aws_sdk_ecs as ecs;
 use aws_sdk_ecs::operation::describe_clusters::{DescribeClustersOutput};
@@ -45,6 +46,35 @@ impl AwsCtx {
     }
 }
 
+/// Quote a single argv element so the echoed command line can be pasted back
+/// into a shell verbatim.
+fn shell_quote(arg: &str) -> String {
+    let safe = !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=@".contains(c));
+    if safe {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
+
+/// Echo the `aws` CLI invocation (with the profile/region env prefix) before
+/// spawning it, so the user can see and copy what the TUI actually runs.
+pub(crate) fn print_command(ctx: &AwsCtx, args: &[&str]) {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(profile) = &ctx.profile {
+        parts.push(format!("AWS_PROFILE={}", shell_quote(profile)));
+    }
+    if let Some(region) = &ctx.region {
+        parts.push(format!("AWS_REGION={}", shell_quote(region)));
+    }
+    parts.push("aws".to_string());
+    parts.extend(args.iter().map(|arg| shell_quote(arg)));
+    println!("{} {}", "→".green().bold(), parts.join(" ").bold());
+}
+
 #[derive(Debug)]
 pub struct EC2Instance {
     pub(crate) instance_id: String,
@@ -55,8 +85,7 @@ pub(crate) async fn ecs_execute_command(ctx: &AwsCtx, cluster: &str, task: &str,
     ctrlc::set_handler(move || {}).expect("Error setting Ctrl-C handler");
     // Pass arguments directly (no shell) so cluster/task/container names can't
     // be interpreted by /bin/sh.
-    let mut cmd = std::process::Command::new("aws");
-    cmd.args([
+    let args = [
         "ecs",
         "execute-command",
         "--cluster",
@@ -68,7 +97,10 @@ pub(crate) async fn ecs_execute_command(ctx: &AwsCtx, cluster: &str, task: &str,
         "--command",
         command,
         "--interactive",
-    ]);
+    ];
+    print_command(ctx, &args);
+    let mut cmd = std::process::Command::new("aws");
+    cmd.args(args);
     ctx.apply_env(&mut cmd);
     let output = cmd.spawn().expect("failed to execute process");
     let _ = output.wait_with_output();

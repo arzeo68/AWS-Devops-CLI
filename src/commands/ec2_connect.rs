@@ -217,8 +217,10 @@ pub async fn run_ec2_connect(terminal: &mut ratatui::DefaultTerminal, ctx: AwsCt
 async fn connect_to_ec2_command(ctx: &AwsCtx, target: &str) {
     ctrlc::set_handler(move || {}).expect("Error setting Ctrl-C handler");
 
+    let args = ["ssm", "start-session", "--target", target];
+    crate::commands::aws_utils::print_command(ctx, &args);
     let mut cmd = std::process::Command::new("aws");
-    cmd.args(["ssm", "start-session", "--target", target]);
+    cmd.args(args);
     ctx.apply_env(&mut cmd);
     let output = cmd.spawn().expect("failed to execute process");
     let _ = output.wait_with_output();

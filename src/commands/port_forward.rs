@@ -1,4 +1,4 @@
-use crate::commands::aws_utils::AwsCtx;
+use crate::commands::aws_utils::{print_command, AwsCtx};
 use promkit::preset::readline::Readline;
 
 pub(crate) async fn connect_to_ecs_command(ctx: &AwsCtx, target: &str, host: &str, local_port: &str, remote_port: &str) {
@@ -11,8 +11,7 @@ pub(crate) async fn connect_to_ecs_command(ctx: &AwsCtx, target: &str, host: &st
         remote_port, local_port, host
     );
 
-    let mut cmd = std::process::Command::new("aws");
-    cmd.args([
+    let args = [
         "ssm",
         "start-session",
         "--target",
@@ -20,8 +19,11 @@ pub(crate) async fn connect_to_ecs_command(ctx: &AwsCtx, target: &str, host: &st
         "--document-name",
         document,
         "--parameters",
-        &params,
-    ]);
+        params.as_str(),
+    ];
+    print_command(ctx, &args);
+    let mut cmd = std::process::Command::new("aws");
+    cmd.args(args);
     ctx.apply_env(&mut cmd);
     let output = cmd.spawn().expect("failed to execute process");
     let _ = output.wait_with_output();
